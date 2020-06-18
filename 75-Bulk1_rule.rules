@@ -1,0 +1,5 @@
+# This is a udev rule to be added to /etc/udev/rules.d
+# the group usbusers needs to be added "sudo groupadd usbusers"
+# Add user to group "sudo usermod -a -G usbusers $USER"
+
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", MODE=0664", GROUP="usbusers"
