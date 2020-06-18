@@ -16,7 +16,7 @@ VENDOR_IN_EPADDR = 0x83
 VENDOR_OUT_EPADDR = 0x04
 VENDOR_IO_EPSIZE = 64
 CMD_DATA_AVAILABLE = 0x31
-
+CMD_REQUEST_DATA = 0x32
 
 msg = 'a\n'.encode()
 pkg = len(msg).to_bytes(2, 'little') + msg
@@ -36,7 +36,11 @@ print("found dev")
 print(dev.ctrl_transfer(0xC0, CMD_DATA_AVAILABLE, 0, 0, 64))
 # dev.set_configuration()
 dev.write(VENDOR_OUT_EPADDR, pkg, 500)
-ret = dev.read(VENDOR_IN_EPADDR, 64, 1000)
+time.sleep(1)
+available_data = dev.ctrl_transfer(0xC0, CMD_DATA_AVAILABLE, 0, 0, 64)[0]
+print(available_data)
+dev.ctrl_transfer(0x40, CMD_DATA_AVAILABLE, 0, 0, available_data)
+ret = dev.read(VENDOR_IN_EPADDR, available_data, 1000)
 print(ret)
 s = ""
 index = 0
@@ -48,7 +52,7 @@ for c in ret:
 print(s)
 # ctrl_transfer(self, bmRequestType, bRequest, wValue=0, wIndex=0,
 #             data_or_wLength = None, timeout = None)
-print(dev.ctrl_transfer(0xC0, CMD_DATA_AVAILABLE, 0, 0, 64))
+print(dev.ctrl_transfer(0xC0, CMD_REQUEST_DATA, 0, 0, 64))
 # print(dev.read(VENDOR_IN_EPADDR, 1, 1000))
 # dev.ctrl_transfer(bmRequestType, bmRequest, wValue, wIndex ,msg or read len)
 # dev.ctrl_transfer(0x40, bmRequest, 0, 0, msg)
