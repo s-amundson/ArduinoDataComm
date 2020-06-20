@@ -37,7 +37,6 @@
 #define  INCLUDE_FROM_BULKVENDOR_C
 #include "BulkVendor.h"
 
-#define CMD_REQUEST_DATA			0x32
 
 /** Circular buffer to hold data from the host before it is sent to the device via the serial port. */
 static RingBuffer_t USBtoUSART_Buffer;
@@ -50,16 +49,16 @@ static RingBuffer_t USARTtoUSB_Buffer;
 
 /** Underlying data buffer for \ref USARTtoUSB_Buffer, where the stored bytes are located. */
 static uint8_t      USARTtoUSB_Buffer_Data[128];
-
+//static uint8_t      Send_Buffer_Data[128];
 /** length of data to be sent to host **/
-uint8_t USARTtoUSB_Buffer_Data_Size = 0;
-
+//uint16_t Incoming_Data_Size = 0;
+static uint8_t      Size_Buffer[2];
+static uint8_t      ReceivedData[VENDOR_IO_EPSIZE];
 /** Main program entry point. This routine configures the hardware required by the application, then
  *  enters a loop to run the application tasks in sequence.
  */
 int main(void)
 {
-	int package_len;
 	SetupHardware();
 
 	RingBuffer_InitBuffer(&USBtoUSART_Buffer, USBtoUSART_Buffer_Data, sizeof(USBtoUSART_Buffer_Data));
@@ -74,7 +73,7 @@ int main(void)
 	{
 		USB_USBTask();
 
-		uint8_t ReceivedData[VENDOR_IO_EPSIZE];
+//		uint8_t ReceivedData[VENDOR_IO_EPSIZE];
 		memset(ReceivedData, 0x00, sizeof(ReceivedData));
 
 		Endpoint_SelectEndpoint(VENDOR_OUT_EPADDR);
@@ -84,23 +83,11 @@ int main(void)
 			Endpoint_Read_Stream_LE(ReceivedData, VENDOR_IO_EPSIZE, NULL);
 			Endpoint_ClearOUT();
 
-			package_len = ReceivedData[0]; // << 4 + ReceivedData[1];
-//			RingBuffer_Insert(&USBtoUSART_Buffer, ReceivedData[0]);
-			if (package_len > 62)
-			{
-				package_len = 62;
-			}
-			for (int i = 0; i < package_len; i++)
-			{
-				// todo check if buffer is full
-				RingBuffer_Insert(&USBtoUSART_Buffer, ReceivedData[i + 2]);
+            USART_Package();
 
-			}
-
-//			LEDs_TurnOffLEDs(LEDS_ALL_LEDS);
 
 		}
-
+		USART_Tasks();
 	}
 }
 
@@ -179,26 +166,52 @@ void EVENT_USB_Device_ControlRequest(void)
 			{
 				switch(USB_ControlRequest.bRequest)
 				{
-					case CMD_REQUEST_DATA:
+				    case CONTROL_SEND_SIZE:
+				        // report to the host how much data will be sent.
+				        Endpoint_ClearSETUP();
+				        /*read data from endpoint*/
+				        Endpoint_Read_Control_Stream_LE(Size_Buffer, 2);
+				        /*and mark the whole request as successful:*/
+				        Endpoint_ClearStatusStage();
+				        break;
 
-					    uint8_t SendData[USB_ControlRequest.wLength];
-					    for (int i = 0; i < USB_ControlRequest.wLength; i++)
-                        {
-                            if (!(RingBuffer_IsEmpty(&USBtoUSART_Buffer)))
-                            {
-                                SendData[i] = RingBuffer_Remove(&USARTtoUSB_Buffer);
-                            }
-                        }
-//                        TODO add for loop to for if buffer bigger then EP size
-//            			LEDs_SetAllLEDs(LEDMASK_TX);
-                        Endpoint_SelectEndpoint(VENDOR_IN_EPADDR);
-                        Endpoint_Write_Stream_LE(SendData, VENDOR_IO_EPSIZE, NULL);
-                        Endpoint_ClearIN();
-                        LEDs_TurnOffLEDs(LEDS_ALL_LEDS);
-						break;
-//					case SERVO_CMD_SETALL:
-//						process_SERVO_CMD_SETALL();
-//						break;
+				    case CONTROL_SEND_USART:
+//				        uint16_t ReceivedData[8];
+				        Endpoint_ClearSETUP();
+				        /*read data from endpoint*/
+				        Endpoint_Read_Control_Stream_LE(ReceivedData, 64);
+				        /*and mark the whole request as successful:*/
+				        Endpoint_ClearStatusStage();
+				        USART_Package();
+				        break;
+
+				}
+////					case CMD_REQUEST_DATA:
+////                        Endpoint_ClearSETUP();
+////                        Endpoint_ClearOUT();
+////
+////                        /*wait for the final IN token:*/
+////                        while (!(Endpoint_IsINReady()));
+////
+////                        /*and mark the whole request as successful:*/
+////                        Endpoint_ClearIN();
+////					    for (int i = 0; i < USB_ControlRequest.wLength; i++)
+////                        {
+////                            if (!(RingBuffer_IsEmpty(&USBtoUSART_Buffer)))
+////                            {
+////                                Send_Buffer_Data[i] = RingBuffer_Remove(&USARTtoUSB_Buffer);
+////                            }
+////                        }
+//////                        TODO add for loop to for if buffer bigger then EP size
+//////            			LEDs_SetAllLEDs(LEDMASK_TX);
+////                        Endpoint_SelectEndpoint(VENDOR_IN_EPADDR);
+////                        Endpoint_Write_Stream_LE(Send_Buffer_Data, VENDOR_IO_EPSIZE, NULL);
+////                        Endpoint_ClearIN();
+////                        LEDs_TurnOffLEDs(LEDS_ALL_LEDS);
+////						break;
+////					case SERVO_CMD_SETALL:
+////						process_SERVO_CMD_SETALL();
+////						break;
 //				}
 			} else
 			{
@@ -210,23 +223,56 @@ void EVENT_USB_Device_ControlRequest(void)
 					Endpoint_SelectEndpoint(ENDPOINT_CONTROLEP);
 
 					Endpoint_ClearSETUP();
+					Size_Buffer[0] = RingBuffer_GetCount(&USARTtoUSB_Buffer);
+					//, USARTtoUSB_Buffer_Data_Size};
+					Endpoint_Write_Control_Stream_LE(&Size_Buffer, 2);
 
-//					if (ReportID)
-					Endpoint_Write_8(RingBuffer_GetCount(&USARTtoUSB_Buffer));
-//
-					Endpoint_Write_Control_Stream_LE(0x00, 1);
-					Endpoint_ClearIN();
-//					Endpoint_ClearOUT();
+					Endpoint_ClearStatusStage();
 					Delay_MS(100);
 					LEDs_TurnOffLEDs(LEDS_ALL_LEDS);
 					break;
-//				case CMD_GET_DATA:
-//					process_SERVO_CMD_GETALL();
-//					break;
-				}
+
+                case CMD_REQUEST_DATA:
+                    Endpoint_SelectEndpoint(ENDPOINT_CONTROLEP);
+                    Endpoint_ClearSETUP();
+                    uint8_t Send_Buffer_Data[USB_ControlRequest.wLength];
+
+                    for (int i = 0; i < USB_ControlRequest.wLength; i++)
+                    {
+                        if (!(RingBuffer_IsEmpty(&USBtoUSART_Buffer)))
+                        {
+                            Send_Buffer_Data[i] = RingBuffer_Remove(&USARTtoUSB_Buffer);
+                        }
+                    }
+
+                    Endpoint_Write_Control_Stream_LE(&Send_Buffer_Data, USB_ControlRequest.wLength);
+//                        LEDs_TurnOffLEDs(LEDS_ALL_LEDS);
+//
+////                        Endpoint_ClearIN();
+//                        /*and mark the whole request as successful:*/
+                    Endpoint_ClearStatusStage();
+                    break;
+                }
 			}
 		}
 	}
+}
+void USART_Package()
+{
+    // put package reeieved into USART buffer to be sent.
+    int package_len = ReceivedData[0]; // << 4 + ReceivedData[1];
+
+    if (package_len > 62)
+    {
+        package_len = 62;
+    }
+    for (int i = 0; i < package_len; i++)
+    {
+        if (!RingBuffer_IsFull(&USBtoUSART_Buffer))
+        {
+            RingBuffer_Insert(&USBtoUSART_Buffer, ReceivedData[i + 2]);
+        }
+    }
 }
 void USART_Tasks()
 {
@@ -242,9 +288,10 @@ void USART_Tasks()
 
     if (Serial_IsCharReceived() && !(RingBuffer_IsFull(&USARTtoUSB_Buffer)))
     {
+//        int16_t DataByte = Serial_ReceiveByte();
+        int8_t DataByte = Serial_ReceiveByte();
         LEDs_SetAllLEDs(LEDMASK_RX);
-        RingBuffer_Insert(&USARTtoUSB_Buffer, ReceivedByte);
-		USARTtoUSB_Buffer_Data_Size++;
+        RingBuffer_Insert(&USARTtoUSB_Buffer, DataByte);
 		LEDs_TurnOffLEDs(LEDS_ALL_LEDS);
     }
 }
